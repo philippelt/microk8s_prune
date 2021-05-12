@@ -57,4 +57,4 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
         print("S:", len(containers), "containers")
         print("S:", len(usedImages), "used images")
         print("S:", len(images), "total images")
-        if unused: print("S: Unused images (%s):" % len(unused))
+        if unused: print("S:", len(unused), "unused images", "(removed)" if "p" in args else "")
