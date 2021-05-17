@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 
-
 import sys
-
+from datetime import datetime
 
 import grpc
 from containerd.services.containers.v1 import containers_pb2_grpc, containers_pb2
 from containerd.services.images.v1 import images_pb2_grpc, images_pb2
-
+from containerd.services.content.v1 import content_pb2_grpc, content_pb2
 
 # args :   c print containers and associated images
 #          i print images name
@@ -15,6 +14,29 @@ from containerd.services.images.v1 import images_pb2_grpc, images_pb2
 #          s print sumary info
 #          p DELETE unused images (if run interactively, will request confirmation)
 #          f force delete without confirmation
+
+
+def compute_size(contentv1, imgDigest):
+    content = contentv1.Info( content_pb2.InfoRequest(digest=imgDigest),
+                              metadata=(('containerd-namespace', 'k8s.io'),)).info
+    layers = [l for l in content.labels if "containerd.io/gc.ref.content." in l]
+    size = content.size
+    for l in layers:
+        try:
+            size += compute_size(contentv1, content.labels[l])
+        except:
+            pass # Layer not found in content ?
+    return size
+
+
+# From Fred Cirera on StackOverflow : thanks !
+# https://stackoverflow.com/questions/1094841/get-human-readable-version-of-file-size
+def sizeof_fmt(num, suffix='B'):
+    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+        if abs(num) < 1024.0:
+            return "%3.1f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, 'Yi', suffix)
 
 
 args = ",".join(sys.argv[1:]).lower()
@@ -27,24 +49,32 @@ if "p" in args and not "f" in args and sys.stdout.isatty():
 with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock') as channel:
 
     containersv1 = containers_pb2_grpc.ContainersStub(channel)
+    imagesv1 = images_pb2_grpc.ImagesStub(channel)
+    contentv1 = content_pb2_grpc.ContentStub(channel)
+
     containers = containersv1.List( containers_pb2.ListContainersRequest(),
                                     metadata=(('containerd-namespace', 'k8s.io'),)).containers
 
     usedImages = {}
     for c in containers:
         usedImages[c.image] = c.id
-        if "c" in args:
-            print("C:", c.id, c.image)
+        if "c" in args: print("C:", c.id, c.image)
 
-    imagesv1 = images_pb2_grpc.ImagesStub(channel)
     images = imagesv1.List( images_pb2.ListImagesRequest(),
                             metadata=(('containerd-namespace', 'k8s.io'),)).images
     
     unused = []
+    totalImageSize = 0
     for i in images:
         if i.name not in usedImages: unused.append(i.name)
+        image = imagesv1.Get( images_pb2.GetImageRequest(name=i.name),
+                              metadata=(('containerd-namespace', 'k8s.io'),)).image
+        imageSize = compute_size(contentv1, i.target.digest)
+        totalImageSize += imageSize
         if "i" in args:
-            print("I:", i.name)
+            print("I:", i.name,
+                        imageSize,
+                        datetime.fromtimestamp(image.updated_at.seconds).isoformat())
 
     if "u" in args:
         for i in unused: print("U:", i)
@@ -54,7 +84,18 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
                                           metadata=(('containerd-namespace', 'k8s.io'),) )
 
     if "s" in args:
+
         print("S:", len(containers), "containers")
-        print("S:", len(usedImages), "used images")
         print("S:", len(images), "total images")
-        if unused: print("S:", len(unused), "unused images", "(removed)" if "p" in args else "")
+        print("S: %s (%s bytes) total images size" % (sizeof_fmt(totalImageSize), totalImageSize))
+        print("S:", len(usedImages), "used images")
+        if unused: print("S:", len(unused), "unused images")
+
+        if "p" in args:
+            images = imagesv1.List( images_pb2.ListImagesRequest(),
+                                    metadata=(('containerd-namespace', 'k8s.io'),)).images
+            newImageSize = 0
+            for i in images:
+                newImageSize += compute_size(contentv1, i.target.digest)
+            recovered = totalImageSize - newImageSize
+            print("S: %s (%s bytes) recovered space" % (sizeof_fmt(recovered), recovered))
