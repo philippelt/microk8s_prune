@@ -67,14 +67,12 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
     totalImageSize = 0
     for i in images:
         if i.name not in usedImages: unused.append(i.name)
-        image = imagesv1.Get( images_pb2.GetImageRequest(name=i.name),
-                              metadata=(('containerd-namespace', 'k8s.io'),)).image
         imageSize = compute_size(contentv1, i.target.digest)
         totalImageSize += imageSize
         if "i" in args:
             print("I:", i.name,
                         imageSize,
-                        datetime.fromtimestamp(image.updated_at.seconds).isoformat())
+                        datetime.fromtimestamp(i.updated_at.seconds).isoformat())
 
     if "u" in args:
         for i in unused: print("U:", i)
