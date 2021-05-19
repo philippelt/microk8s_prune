@@ -16,14 +16,21 @@ from containerd.services.content.v1 import content_pb2_grpc, content_pb2
 #          f force delete without confirmation
 
 
-def compute_size(contentv1, imgDigest):
+def compute_size(contentv1, imgDigest, doneLayer=None):
     content = contentv1.Info( content_pb2.InfoRequest(digest=imgDigest),
                               metadata=(('containerd-namespace', 'k8s.io'),)).info
     layers = [l for l in content.labels if "containerd.io/gc.ref.content." in l]
     size = content.size
     for l in layers:
         try:
-            size += compute_size(contentv1, content.labels[l])
+            if doneLayer is not None:
+                if content.labels[l] in doneLayer:
+                    continue
+                else:
+                    doneLayer.append(content.labels[l])
+                    size += compute_size(contentv1, content.labels[l], doneLayer)
+            else:
+                size += compute_size(contentv1, content.labels[l])
         except:
             pass # Layer not found in content ?
     return size
@@ -32,7 +39,7 @@ def compute_size(contentv1, imgDigest):
 # From Fred Cirera on StackOverflow : thanks !
 # https://stackoverflow.com/questions/1094841/get-human-readable-version-of-file-size
 def sizeof_fmt(num, suffix='B'):
-    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+    for unit in [' B',' K',' M',' G',' T',' P',' E',' Z']:
         if abs(num) < 1024.0:
             return "%3.1f%s%s" % (num, unit, suffix)
         num /= 1024.0
@@ -65,10 +72,13 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
     
     unused = []
     totalImageSize = 0
+    netTotalSize = 0
+    doneLayer = []
     for i in images:
         if i.name not in usedImages: unused.append(i.name)
         imageSize = compute_size(contentv1, i.target.digest)
         totalImageSize += imageSize
+        netTotalSize += compute_size(contentv1, i.target.digest, doneLayer)
         if "i" in args:
             print("I:", i.name,
                         imageSize,
@@ -85,15 +95,16 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
 
         print("S:", len(containers), "containers")
         print("S:", len(images), "total images")
-        print("S: %s (%s bytes) total images size" % (sizeof_fmt(totalImageSize), totalImageSize))
+        print("S: %s (%s bytes) total images size, %s shared" % (sizeof_fmt(totalImageSize), totalImageSize, sizeof_fmt(totalImageSize-netTotalSize)))
         print("S:", len(usedImages), "used images")
         if unused: print("S:", len(unused), "unused images")
 
         if "p" in args:
             images = imagesv1.List( images_pb2.ListImagesRequest(),
                                     metadata=(('containerd-namespace', 'k8s.io'),)).images
-            newImageSize = 0
+            newNetImageSize = 0
+            doneLayer = []
             for i in images:
-                newImageSize += compute_size(contentv1, i.target.digest)
-            recovered = totalImageSize - newImageSize
+                newNetImageSize += compute_size(contentv1, i.target.digest, doneLayer)
+            recovered = netTotalSize - newNetImageSize
             print("S: %s (%s bytes) recovered space" % (sizeof_fmt(recovered), recovered))
