@@ -2,7 +2,8 @@
 
 As you can expect, this small utility is doing for a microk8s / containerd environment the same operation that docker system prune does : it search for images unused by container to list them and/or delete them to recover space
 
-You will need a python3 running environnment and the containerd library (pip install containerd). This should also install grpc dependancies.
+You will need a python3 running environnment and the containerd library.
+> **Note**: Protobuf project, used by containerd through grpc layer, introduced a breaking change between 3.x and 4.x version, mainly for performance gains. The containerd python library is not yet available in a compatible version with protobuf 4.x. Thus it is recommended to stay with 3.x (ideally the last release before 4.x, at time of writing, 3.20.3). Unless your are explicitely using protobuf 4.x in your applications that would create installation conflict, this will not have undesirable effects on the utility behavior. Would you need elsewhere protobuf v4.x, it is always possible to run the utility in a small dedicated container (mounting the sock, see below, as a volume).
 
 if you chmod +x the utility, just run it with :
 
