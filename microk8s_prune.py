@@ -66,9 +66,10 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
     containers = containersv1.List( containers_pb2.ListContainersRequest(),
                                     metadata=(('containerd-namespace', 'k8s.io'),)).containers
 
-    json_out = { "containers":[], "images":[] }
+    json_out = {}
 
     usedImages = {}
+    if "c" in args: json_out["containers"] = []
     for c in containers:
         usedImages[c.image] = c.id
         if "c" in args:
@@ -84,12 +85,14 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
     totalImageSize = 0
     netTotalSize = 0
     doneLayer = []
+    if "i" in args: json_out["images"] = []
     for i in images:
         if i.name not in usedImages: unused.append(i.name)
         imageSize = compute_size(contentv1, i.target.digest)
         totalImageSize += imageSize
         netTotalSize += compute_size(contentv1, i.target.digest, doneLayer)
         if "i" in args:
+
             if "j" in args:
                 json_out["images"].append( {"name":i.name, "size":imageSize, "updated":i.updated_at.seconds})
             else:
@@ -110,6 +113,7 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
         if "j" in args:
             json_out["stats"] = {"containers":len(containers),
                                  "images":len(images),
+                                 "unusedImages":len(unused),
                                  "imageBytes":totalImageSize,
                                  "imageSharedBytes":totalImageSize-netTotalSize}
         else:
