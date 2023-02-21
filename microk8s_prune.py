@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import sys
+import sys, json
 from datetime import datetime
 
 import grpc
@@ -46,6 +46,8 @@ def sizeof_fmt(num, suffix='B'):
     return "%.1f%s%s" % (num, 'Yi', suffix)
 
 
+
+### Main code ###
 args = ",".join(sys.argv[1:]).lower()
 if "p" in args and not "f" in args and sys.stdout.isatty():
     resp = input("Unused images will be deleted, please confirm [y/N]: ")
@@ -64,14 +66,20 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
     containers = containersv1.List( containers_pb2.ListContainersRequest(),
                                     metadata=(('containerd-namespace', 'k8s.io'),)).containers
 
+    json_out = { "containers":[], "images":[] }
+
     usedImages = {}
     for c in containers:
         usedImages[c.image] = c.id
-        if "c" in args: print("C:", c.id, c.image)
+        if "c" in args:
+            if "j" in args:
+                json_out["containers"].append({"id":c.id, "image":c.image})
+            else:
+                print("C:", c.id, c.image)
 
     images = imagesv1.List( images_pb2.ListImagesRequest(),
                             metadata=(('containerd-namespace', 'k8s.io'),)).images
-
+    
     unused = []
     totalImageSize = 0
     netTotalSize = 0
@@ -82,12 +90,16 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
         totalImageSize += imageSize
         netTotalSize += compute_size(contentv1, i.target.digest, doneLayer)
         if "i" in args:
-            print("I:", i.name,
-                        imageSize,
-                        datetime.fromtimestamp(i.updated_at.seconds).isoformat())
+            if "j" in args:
+                json_out["images"].append( {"name":i.name, "size":imageSize, "updated":i.updated_at.seconds})
+            else:
+                print("I:", i.name, imageSize, datetime.fromtimestamp(i.updated_at.seconds).isoformat())
 
     if "u" in args:
-        for i in unused: print("U:", i)
+        if "j" in args:
+            json_out["unusedImages"] = unused.copy()
+        else:
+            for i in unused: print("U:", i)
 
     if "p" in args:
         for i in unused: imagesv1.Delete( images_pb2.DeleteImageRequest( name=i, sync=True),
@@ -95,11 +107,17 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
 
     if "s" in args:
 
-        print("S:", len(containers), "containers")
-        print("S:", len(images), "total images")
-        print("S: %s (%s bytes) total images size, %s shared" % (sizeof_fmt(totalImageSize), totalImageSize, sizeof_fmt(totalImageSize-netTotalSize)))
-        print("S:", len(usedImages), "used images")
-        if unused: print("S:", len(unused), "unused images")
+        if "j" in args:
+            json_out["stats"] = {"containers":len(containers),
+                                 "images":len(images),
+                                 "imageBytes":totalImageSize,
+                                 "imageSharedBytes":totalImageSize-netTotalSize}
+        else:
+            print("S:", len(containers), "containers")
+            print("S:", len(images), "total images")
+            print("S: %s (%s bytes) total images size, %s shared" % (sizeof_fmt(totalImageSize), totalImageSize, sizeof_fmt(totalImageSize-netTotalSize)))
+            print("S:", len(usedImages), "used images")
+            if unused: print("S:", len(unused), "unused images")
 
         if "p" in args:
             images = imagesv1.List( images_pb2.ListImagesRequest(),
@@ -109,4 +127,10 @@ with grpc.insecure_channel('unix:///var/snap/microk8s/common/run/containerd.sock
             for i in images:
                 newNetImageSize += compute_size(contentv1, i.target.digest, doneLayer)
             recovered = netTotalSize - newNetImageSize
-            print("S: %s (%s bytes) recovered space" % (sizeof_fmt(recovered), recovered))
+            if "j" in args:
+                json_out["stats"]["recoverd"] = recovered
+            else:
+                print("S: %s (%s bytes) recovered space" % (sizeof_fmt(recovered), recovered))
+
+    if "j" in args:
+        print(json.dumps(json_out, indent=True))

@@ -16,6 +16,7 @@ Parameters:
 - s : Print summary information (# containers, total images, unused images)
 - p : DELETE unused images (will require confirmation if run interactively)
 - f : Force delete without confirmation
+- j : All requested output in json format for pipe reuse
 
 Without any parameter, it will do the job of identifying unused images but do not display anything nor delete anything. Without ```p``` and/or ```f``` parameter, the utility is strictly read-only.
 
