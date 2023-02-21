@@ -1,5 +1,7 @@
 # microk8s_prune
 
+**New: selected output results in JSON format for easy pipe reuse**
+
 As you can expect, this small utility is doing for a microk8s / containerd environment the same operation that docker system prune does : it search for images unused by container to list them and/or delete them to recover space
 
 You will need a python3 running environnment and the containerd library.
@@ -7,7 +9,7 @@ You will need a python3 running environnment and the containerd library.
 
 if you chmod +x the utility, just run it with :
 
-```./microk8s_prune.py [ciuspf]```
+```./microk8s_prune.py [ciuspfj]```
 
 Parameters:
 - c : List containers and associated images (line output prefixed with C:)
