@@ -1,5 +1,7 @@
 # microk8s_prune
 
+**Official tool**: For cleanup, the crictl tool from cri-tools have now a rmi --prune feature. Thanks to Franco Martin (https://discuss.kubernetes.io/t/microk8s-images-prune-utility-for-production-servers/15874/2) for the info
+
 **New: selected output results in JSON format for easy pipe reuse**
 
 As you can expect, this small utility is doing for a microk8s / containerd environment the same operation that docker system prune does : it search for images unused by container to list them and/or delete them to recover space
